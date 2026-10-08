@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TalkSplit 音声テスト</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#f4f6f8;font-family:system-ui,-apple-system,"Noto Sans JP",sans-serif;color:#202124}
+main{max-width:760px;margin:0 auto;padding:24px 16px}
+h1{font-size:24px;margin:0 0 8px}
+p{line-height:1.6}
+.card{background:#fff;border-radius:14px;padding:18px;margin:14px 0;box-shadow:0 2px 8px #0001}
+button{font-size:17px;padding:13px 20px;border:0;border-radius:10px;cursor:pointer;margin:4px}
+#start{background:#1976d2;color:#fff}
+#stop{background:#555;color:#fff}
+button:disabled{opacity:.45;cursor:not-allowed}
+.status{padding:12px;border-radius:9px;background:#eef2f7;white-space:pre-wrap}
+.ok{background:#e8f5e9}.bad{background:#ffebee}
+#result{min-height:160px;white-space:pre-wrap;font-size:18px;line-height:1.7}
+.small{font-size:13px;color:#666}
+</style>
+</head>
+<body>
+<main>
+<h1>TalkSplit 音声テスト</h1>
+<p>これは本サービスの前段階として、<b>GitHub Pages + Android Chrome + マイク + 日本語音声認識</b>が動くかを確認するだけの診断版です。</p>
+
+<div class="card">
+<button id="start">● テスト開始</button>
+<button id="stop" disabled>■ 停止</button>
+</div>
+
+<div class="card">
+<h3>診断結果</h3>
+<div id="status" class="status">まだテストしていません。</div>
+</div>
+
+<div class="card">
+<h3>認識した文字</h3>
+<div id="result">ここに音声認識結果が表示されます。</div>
+</div>
+
+<div class="card small">
+<b>確認ポイント</b><br>
+・「テスト開始」を押すと状態が変化すること<br>
+・Chromeからマイク許可を求められたら「許可」すること<br>
+・話しかけると「認識した文字」に表示されること<br>
+・このページはHTTPS（GitHub Pages）で開いてください
+</div>
+
+<script>
+(function(){
+"use strict";
+
+const start=document.getElementById("start");
+const stop=document.getElementById("stop");
+const status=document.getElementById("status");
+const result=document.getElementById("result");
+
+let recognition=null;
+let running=false;
+
+function show(text, type){
+  status.textContent=text;
+  status.className="status "+(type||"");
+}
+
+function environmentCheck(){
+  const lines=[];
+  lines.push("ページURL: "+location.href);
+  lines.push("HTTPS: "+(location.protocol==="https:" ? "OK" : "NG（GitHub PagesのHTTPSで開いてください）"));
+  lines.push("Secure Context: "+(window.isSecureContext ? "OK" : "NG"));
+  lines.push("音声認識API: "+((window.SpeechRecognition||window.webkitSpeechRecognition) ? "利用可能" : "利用不可"));
+  lines.push("MediaDevices: "+(navigator.mediaDevices ? "利用可能" : "利用不可"));
+  return lines.join("\n");
+}
+
+start.addEventListener("click", async function(){
+  show("① ボタンは正常に押されました。\n\n診断中...", "");
+
+  const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+
+  if(location.protocol!=="https:" && location.hostname!=="localhost"){
+    show(environmentCheck()+"\n\n→ HTTPSではありません。GitHub PagesのURLを確認してください。","bad");
+    return;
+  }
+
+  if(!window.isSecureContext){
+    show(environmentCheck()+"\n\n→ Secure Contextではありません。","bad");
+    return;
+  }
+
+  if(!SpeechRecognition){
+    show(environmentCheck()+"\n\n→ このChromeではSpeechRecognitionが利用できません。","bad");
+    return;
+  }
+
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    show(environmentCheck()+"\n\n→ マイク取得APIが利用できません。","bad");
+    return;
+  }
+
+  show("② ブラウザ機能は正常です。\n\n③ マイクの許可を確認しています...","");
+
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+    stream.getTracks().forEach(track=>track.stop());
+  }catch(e){
+    show(environmentCheck()+"\n\nマイク取得エラー: "+e.name+"\n"+(e.message||"")+
+         "\n\n→ Chromeのサイト設定で、このページの「マイク」を許可してください。","bad");
+    return;
+  }
+
+  show("④ マイクへのアクセスOK。\n\n⑤ 日本語音声認識を開始します。\n\n話してください。","ok");
+
+  recognition=new SpeechRecognition();
+  recognition.lang="ja-JP";
+  recognition.continuous=true;
+  recognition.interimResults=true;
+
+  recognition.onstart=function(){
+    running=true;
+    start.disabled=true;
+    stop.disabled=false;
+    show("⑤ 音声認識中です。\n\n話してください。","ok");
+  };
+
+  recognition.onresult=function(event){
+    let text="";
+    for(let i=event.resultIndex;i<event.results.length;i++){
+      text+=event.results[i][0].transcript;
+    }
+    if(text.trim()){
+      result.textContent=text;
+    }
+  };
+
+  recognition.onerror=function(event){
+    show("音声認識エラー\n\nエラーコード: "+event.error+
+         "\n\n診断情報:\n"+environmentCheck(),"bad");
+  };
+
+  recognition.onend=function(){
+    if(running){
+      try{ recognition.start(); }catch(e){}
+    }else{
+      start.disabled=false;
+      stop.disabled=true;
+      show("停止しました。","");  
+    }
+  };
+
+  try{
+    recognition.start();
+  }catch(e){
+    show("音声認識の開始に失敗しました。\n\n"+e.name+"\n"+e.message,"bad");
+  }
+});
+
+stop.addEventListener("click",function(){
+  running=false;
+  if(recognition){
+    try{recognition.stop();}catch(e){}
+  }
+});
+
+})();
+</script>
+</main>
+</body>
+</html>
