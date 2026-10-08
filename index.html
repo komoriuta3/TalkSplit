@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TalkSplit Prototype</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"Noto Sans JP",sans-serif;background:#f3f5f7;color:#20252b}
+header{background:#1f2937;color:white;padding:16px 20px;display:flex;justify-content:space-between;align-items:center}
+h1{font-size:20px;margin:0}.sub{font-size:12px;opacity:.75}
+main{max-width:900px;margin:auto;padding:18px}
+.controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+button,select{border:0;border-radius:9px;padding:10px 14px;font-size:14px;cursor:pointer;background:white;box-shadow:0 1px 3px #0002}
+button.primary{background:#2563eb;color:white}button.danger{background:#dc2626;color:white}
+#status{font-size:13px;color:#555;margin:8px 0 14px}
+#chat{background:white;border-radius:14px;padding:18px;min-height:420px;box-shadow:0 2px 8px #0001}
+.row{display:flex;margin:10px 0}.row.a{justify-content:flex-start}.row.b{justify-content:flex-end}
+.msg{max-width:78%;padding:10px 13px;border-radius:14px;position:relative}
+.a .msg{background:#e8f0ff;border-bottom-left-radius:4px}.b .msg{background:#e8f8ed;border-bottom-right-radius:4px}
+.speaker{font-size:11px;font-weight:700;opacity:.7;margin-bottom:4px}
+.text{white-space:pre-wrap;line-height:1.55}
+.actions{margin-top:7px;display:flex;gap:5px}.actions button{padding:4px 7px;font-size:11px;box-shadow:none;background:#ffffffaa}
+.empty{text-align:center;color:#999;padding:100px 20px}
+footer{font-size:12px;color:#777;margin-top:12px;line-height:1.5}
+</style>
+</head>
+<body>
+<header><div><h1>TalkSplit</h1><div class="sub">音声会話 → 話者A/Bチャット変換 Prototype</div></div><div id="timer">00:00</div></header>
+<main>
+<div class="controls">
+<button class="primary" id="start">● 録音・文字起こし開始</button>
+<button id="stop" disabled>■ 停止</button>
+<button id="clear">会話を消去</button>
+<button id="export">TXT保存</button>
+<select id="speaker">
+<option value="a">現在の話者：A</option>
+<option value="b">現在の話者：B</option>
+</select>
+</div>
+<div id="status">マイクの音声認識を開始できます。Chrome系ブラウザでの動作を想定しています。</div>
+<section id="chat"><div class="empty" id="empty">「録音・文字起こし開始」を押して会話してください。</div></section>
+<footer>
+この試作はWeb Speech APIを利用します。ブラウザ・端末によって音声認識の対応状況や通信方式が異なります。
+現段階では話者自動判定ではなく、A/Bを手動で切り替える方式です。次段階でAIによる話者分離を追加できます。
+</footer>
+</main>
+<script>
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+let rec=null,running=false,startTime=0,timerId=null,items=[];
+const chat=document.getElementById('chat'), empty=document.getElementById('empty');
+const status=document.getElementById('status'), speaker=document.getElementById('speaker');
+function render(){
+  chat.innerHTML='';
+  if(!items.length){chat.innerHTML='<div class="empty">会話データはありません。</div>';return}
+  items.forEach((x,i)=>{
+    const row=document.createElement('div'); row.className='row '+x.s;
+    const msg=document.createElement('div'); msg.className='msg';
+    msg.innerHTML='<div class="speaker">話者 '+x.s.toUpperCase()+'</div><div class="text"></div><div class="actions"></div>';
+    msg.querySelector('.text').textContent=x.t;
+    const ac=msg.querySelector('.actions');
+    const b= document.createElement('button'); b.textContent=x.s==='a'?'→ Bに変更':'→ Aに変更';
+    b.onclick=()=>{items[i].s=x.s==='a'?'b':'a';render()};
+    ac.appendChild(b);
+    row.appendChild(msg);chat.appendChild(row);
+  });
+  chat.scrollTop=chat.scrollHeight;
+}
+function addText(t){if(!t.trim())return;items.push({s:speaker.value,t:t.trim(),time:Date.now()});render()}
+function updateTimer(){let s=Math.floor((Date.now()-startTime)/1000);timer.textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')}
+start.onclick=()=>{
+ if(!SR){status.textContent='このブラウザはWeb Speech APIに対応していません。Chrome系ブラウザを試してください。';return}
+ if(running)return;
+ rec=new SR();rec.lang='ja-JP';rec.continuous=true;rec.interimResults=true;
+ rec.onstart=()=>{running=true;start.disabled=true;stop.disabled=false;status.textContent='認識中。話者A/Bを選択して会話してください。';startTime=Date.now();timerId=setInterval(updateTimer,500)}
+ rec.onresult=e=>{
+   let finalText='';
+   for(let i=e.resultIndex;i<e.results.length;i++){if(e.results[i].isFinal)finalText+=e.results[i][0].transcript}
+   if(finalText)addText(finalText);
+ };
+ rec.onerror=e=>status.textContent='音声認識エラー: '+e.error;
+ rec.onend=()=>{if(running){try{rec.start()}catch(e){}}};
+ rec.start();
+}
+stop.onclick=()=>{running=false;start.disabled=false;stop.disabled=true;status.textContent='停止しました。';clearInterval(timerId);if(rec)rec.stop()}
+clear.onclick=()=>{items=[];render();status.textContent='会話を消去しました。'}
+export.onclick=()=>{
+ if(!items.length)return;
+ const txt=items.map(x=>'話者 '+x.s.toUpperCase()+': '+x.t).join('\\n');
+ const blob=new Blob([txt],{type:'text/plain;charset=utf-8'});const a=document.createElement('a');
+ a.href=URL.createObjectURL(blob);a.download='talksplit_transcript.txt';a.click();URL.revokeObjectURL(a.href);
+}
+render();
+</script>
+</body>
+</html>
