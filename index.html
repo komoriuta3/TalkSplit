@@ -3,170 +3,82 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TalkSplit 音声テスト</title>
+<title>TalkSplit A/B Prototype</title>
 <style>
-*{box-sizing:border-box}
-body{margin:0;background:#f4f6f8;font-family:system-ui,-apple-system,"Noto Sans JP",sans-serif;color:#202124}
-main{max-width:760px;margin:0 auto;padding:24px 16px}
-h1{font-size:24px;margin:0 0 8px}
-p{line-height:1.6}
-.card{background:#fff;border-radius:14px;padding:18px;margin:14px 0;box-shadow:0 2px 8px #0001}
-button{font-size:17px;padding:13px 20px;border:0;border-radius:10px;cursor:pointer;margin:4px}
-#start{background:#1976d2;color:#fff}
-#stop{background:#555;color:#fff}
-button:disabled{opacity:.45;cursor:not-allowed}
-.status{padding:12px;border-radius:9px;background:#eef2f7;white-space:pre-wrap}
-.ok{background:#e8f5e9}.bad{background:#ffebee}
-#result{min-height:160px;white-space:pre-wrap;font-size:18px;line-height:1.7}
-.small{font-size:13px;color:#666}
-</style>
-</head>
+*{box-sizing:border-box}body{margin:0;background:#eef1f5;color:#202124;font-family:system-ui,-apple-system,"Noto Sans JP",sans-serif}
+header{background:#202938;color:#fff;padding:14px 16px}h1{font-size:20px;margin:0}.sub{font-size:12px;opacity:.75}
+main{max-width:850px;margin:auto;padding:12px 12px 100px}.toolbar{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:10px}
+button,select{font:inherit;border:0;border-radius:9px;padding:10px 13px;background:#fff;box-shadow:0 1px 3px #0002}button{cursor:pointer}
+button.primary{background:#2563eb;color:#fff}button.stop{background:#555;color:#fff}button:disabled{opacity:.45}
+#status{background:#fff;border-radius:10px;padding:9px 12px;font-size:13px;margin-bottom:12px}
+#chat{display:flex;flex-direction:column;gap:9px}.row{display:flex}.row.a{justify-content:flex-start}.row.b{justify-content:flex-end}
+.bubble{max-width:82%;padding:10px 12px;border-radius:14px;background:#fff;box-shadow:0 1px 3px #0001}
+.a .bubble{border-bottom-left-radius:3px}.b .bubble{border-bottom-right-radius:3px}
+.who{font-size:11px;font-weight:700;margin-bottom:3px;opacity:.65}.text{white-space:pre-wrap;line-height:1.55}
+.edit{margin-top:7px;display:none;width:100%;min-height:65px;border:1px solid #ddd;border-radius:8px;padding:7px;font:inherit}
+.actions{display:flex;gap:5px;margin-top:7px}.actions button{font-size:11px;padding:5px 7px;box-shadow:none}
+.empty{text-align:center;color:#8a919a;padding:100px 20px;background:#fff;border-radius:14px}
+.help{font-size:12px;color:#666;line-height:1.6;margin-top:12px}
+</style></head>
 <body>
+<header><h1>TalkSplit</h1><div class="sub">二人の会話をA/Bチャットに変換する試作版</div></header>
 <main>
-<h1>TalkSplit 音声テスト</h1>
-<p>これは本サービスの前段階として、<b>GitHub Pages + Android Chrome + マイク + 日本語音声認識</b>が動くかを確認するだけの診断版です。</p>
-
-<div class="card">
-<button id="start">● テスト開始</button>
-<button id="stop" disabled>■ 停止</button>
+<div class="toolbar">
+<button id="start" class="primary">● 会話開始</button>
+<button id="stop" class="stop" disabled>■ 停止</button>
+<select id="speakerMode"><option value="auto">話者推定：自動</option><option value="a">現在の話者：A</option><option value="b">現在の話者：B</option></select>
+<button id="clear">消去</button><button id="save">TXT保存</button>
 </div>
-
-<div class="card">
-<h3>診断結果</h3>
-<div id="status" class="status">まだテストしていません。</div>
-</div>
-
-<div class="card">
-<h3>認識した文字</h3>
-<div id="result">ここに音声認識結果が表示されます。</div>
-</div>
-
-<div class="card small">
-<b>確認ポイント</b><br>
-・「テスト開始」を押すと状態が変化すること<br>
-・Chromeからマイク許可を求められたら「許可」すること<br>
-・話しかけると「認識した文字」に表示されること<br>
-・このページはHTTPS（GitHub Pages）で開いてください
-</div>
-
-<script>
-(function(){
-"use strict";
-
-const start=document.getElementById("start");
-const stop=document.getElementById("stop");
-const status=document.getElementById("status");
-const result=document.getElementById("result");
-
-let recognition=null;
-let running=false;
-
-function show(text, type){
-  status.textContent=text;
-  status.className="status "+(type||"");
-}
-
-function environmentCheck(){
-  const lines=[];
-  lines.push("ページURL: "+location.href);
-  lines.push("HTTPS: "+(location.protocol==="https:" ? "OK" : "NG（GitHub PagesのHTTPSで開いてください）"));
-  lines.push("Secure Context: "+(window.isSecureContext ? "OK" : "NG"));
-  lines.push("音声認識API: "+((window.SpeechRecognition||window.webkitSpeechRecognition) ? "利用可能" : "利用不可"));
-  lines.push("MediaDevices: "+(navigator.mediaDevices ? "利用可能" : "利用不可"));
-  return lines.join("\n");
-}
-
-start.addEventListener("click", async function(){
-  show("① ボタンは正常に押されました。\n\n診断中...", "");
-
-  const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
-
-  if(location.protocol!=="https:" && location.hostname!=="localhost"){
-    show(environmentCheck()+"\n\n→ HTTPSではありません。GitHub PagesのURLを確認してください。","bad");
-    return;
-  }
-
-  if(!window.isSecureContext){
-    show(environmentCheck()+"\n\n→ Secure Contextではありません。","bad");
-    return;
-  }
-
-  if(!SpeechRecognition){
-    show(environmentCheck()+"\n\n→ このChromeではSpeechRecognitionが利用できません。","bad");
-    return;
-  }
-
-  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
-    show(environmentCheck()+"\n\n→ マイク取得APIが利用できません。","bad");
-    return;
-  }
-
-  show("② ブラウザ機能は正常です。\n\n③ マイクの許可を確認しています...","");
-
-  try{
-    const stream=await navigator.mediaDevices.getUserMedia({audio:true});
-    stream.getTracks().forEach(track=>track.stop());
-  }catch(e){
-    show(environmentCheck()+"\n\nマイク取得エラー: "+e.name+"\n"+(e.message||"")+
-         "\n\n→ Chromeのサイト設定で、このページの「マイク」を許可してください。","bad");
-    return;
-  }
-
-  show("④ マイクへのアクセスOK。\n\n⑤ 日本語音声認識を開始します。\n\n話してください。","ok");
-
-  recognition=new SpeechRecognition();
-  recognition.lang="ja-JP";
-  recognition.continuous=true;
-  recognition.interimResults=true;
-
-  recognition.onstart=function(){
-    running=true;
-    start.disabled=true;
-    stop.disabled=false;
-    show("⑤ 音声認識中です。\n\n話してください。","ok");
-  };
-
-  recognition.onresult=function(event){
-    let text="";
-    for(let i=event.resultIndex;i<event.results.length;i++){
-      text+=event.results[i][0].transcript;
-    }
-    if(text.trim()){
-      result.textContent=text;
-    }
-  };
-
-  recognition.onerror=function(event){
-    show("音声認識エラー\n\nエラーコード: "+event.error+
-         "\n\n診断情報:\n"+environmentCheck(),"bad");
-  };
-
-  recognition.onend=function(){
-    if(running){
-      try{ recognition.start(); }catch(e){}
-    }else{
-      start.disabled=false;
-      stop.disabled=true;
-      show("停止しました。","");  
-    }
-  };
-
-  try{
-    recognition.start();
-  }catch(e){
-    show("音声認識の開始に失敗しました。\n\n"+e.name+"\n"+e.message,"bad");
-  }
-});
-
-stop.addEventListener("click",function(){
-  running=false;
-  if(recognition){
-    try{recognition.stop();}catch(e){}
-  }
-});
-
-})();
-</script>
+<div id="status">待機中</div>
+<div id="chat"><div class="empty">「会話開始」を押して、二人で話してください。</div></div>
+<div class="help">現在の話者推定は、音声そのものを解析する本格的な話者ダイアライゼーションではありません。発話単位と会話順序を利用した簡易推定です。各吹き出しの「A/B変更」で訂正できます。</div>
 </main>
-</body>
-</html>
+<script>
+(()=>{"use strict";
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+const start=document.getElementById("start"),stop=document.getElementById("stop"),mode=document.getElementById("speakerMode"),clear=document.getElementById("clear"),save=document.getElementById("save"),status=document.getElementById("status"),chat=document.getElementById("chat");
+let rec=null,running=false,turns=[],nextSpeaker="a",interimEl=null;
+function setStatus(t){status.textContent=t}
+function render(){
+ chat.innerHTML="";
+ if(!turns.length){chat.innerHTML='<div class="empty">「会話開始」を押して、二人で話してください。</div>';return}
+ turns.forEach((turn,index)=>{
+  const row=document.createElement("div");row.className="row "+turn.speaker;
+  const bubble=document.createElement("div");bubble.className="bubble";
+  const who=document.createElement("div");who.className="who";who.textContent="話者 "+turn.speaker.toUpperCase();
+  const text=document.createElement("div");text.className="text";text.textContent=turn.text;
+  const edit=document.createElement("textarea");edit.className="edit";edit.value=turn.text;
+  const actions=document.createElement("div");actions.className="actions";
+  const change=document.createElement("button");change.textContent=turn.speaker==="a"?"→ Bに変更":"→ Aに変更";change.onclick=()=>{turn.speaker=turn.speaker==="a"?"b":"a";render()};
+  const editBtn=document.createElement("button");editBtn.textContent="文章を編集";editBtn.onclick=()=>{edit.style.display=edit.style.display==="block"?"none":"block"};
+  const saveBtn=document.createElement("button");saveBtn.textContent="編集を確定";saveBtn.onclick=()=>{turn.text=edit.value.trim();render()};
+  actions.append(change,editBtn,saveBtn);bubble.append(who,text,edit,actions);row.appendChild(bubble);chat.appendChild(row);
+ });
+}
+function chooseSpeaker(){if(mode.value==="a")return"a";if(mode.value==="b")return"b";const s=nextSpeaker;nextSpeaker=s==="a"?"b":"a";return s}
+function addTurn(text){text=text.trim();if(!text)return;turns.push({speaker:chooseSpeaker(),text});render()}
+function setup(){
+ rec=new SR();rec.lang="ja-JP";rec.continuous=true;rec.interimResults=true;
+ rec.onstart=()=>{running=true;start.disabled=true;stop.disabled=false;setStatus("認識中。二人で自然に会話してください。")};
+ rec.onresult=(event)=>{
+  let finalText="",interimText="";
+  for(let i=event.resultIndex;i<event.results.length;i++){const t=event.results[i][0].transcript;if(event.results[i].isFinal)finalText+=t;else interimText+=t}
+  if(interimEl){interimEl.remove();interimEl=null}
+  if(finalText)addTurn(finalText);
+  if(interimText){interimEl=document.createElement("div");interimEl.className="row "+nextSpeaker;const b=document.createElement("div");b.className="bubble";b.style.opacity=".5";b.textContent=interimText;interimEl.appendChild(b);chat.appendChild(interimEl);chat.scrollTop=chat.scrollHeight}
+ };
+ rec.onerror=e=>setStatus("音声認識エラー："+e.error);
+ rec.onend=()=>{if(running){try{rec.start()}catch(e){}}else{start.disabled=false;stop.disabled=true;setStatus("停止しました。")}};
+}
+start.onclick=async()=>{
+ if(!SR){setStatus("このChromeでは音声認識APIを利用できません。");return}
+ try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});stream.getTracks().forEach(t=>t.stop())}
+ catch(e){setStatus("マイクを利用できません："+e.name+"。Android Chromeのマイク権限を確認してください。");return}
+ if(!rec)setup();running=true;try{rec.start()}catch(e){setStatus("開始できません："+e.message)}
+};
+stop.onclick=()=>{running=false;if(rec)try{rec.stop()}catch(e){}};
+clear.onclick=()=>{turns=[];nextSpeaker="a";render();setStatus("会話を消去しました。")};
+save.onclick=()=>{if(!turns.length)return;const txt=turns.map(t=>"話者 "+t.speaker.toUpperCase()+": "+t.text).join("\n");const blob=new Blob([txt],{type:"text/plain;charset=utf-8"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="talksplit_conversation.txt";a.click();setTimeout(()=>URL.revokeObjectURL(url),500)};
+render();
+})();
+</script></body></html>
